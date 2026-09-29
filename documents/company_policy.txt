@@ -1,0 +1,11 @@
+Acme Widgets Co. Remote Work Policy
+
+Employees may work remotely up to three days per week, subject to manager
+approval. Remote work requests must be submitted through the HR portal at
+least one week in advance. Employees are expected to be available during
+core hours, 10 AM to 3 PM local time, regardless of work location.
+
+All remote employees must use company-issued laptops with full-disk
+encryption enabled and must connect to internal systems only through the
+approved VPN client. Violations of this policy may result in revocation
+of remote work privileges.

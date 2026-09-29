@@ -1,1 +1,4 @@
 plans/
+.venv/
+rag_data.db
+__pycache__/

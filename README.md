@@ -22,9 +22,11 @@ Local LLM (phi-3.5-mini via Foundry Local) generates an answer
 Answer with source citations (or "I don't know" if not in the docs)
 ```
 
+Every script talks to Foundry Local the same way: through its OpenAI-compatible local HTTP API (`/v1/chat/completions`, `/v1/embeddings`), using the standard `openai` Python package. There is no Microsoft Python SDK dependency — see [Why no `foundry-local-sdk`?](#why-no-foundry-local-sdk) below.
+
 ## Prerequisites
 
-1. **Foundry Local CLI** (installed separately from the Python package):
+1. **Foundry Local CLI**:
 
    - Windows: `winget install Microsoft.FoundryLocal`
    - macOS: `brew tap microsoft/foundrylocal && brew install foundrylocal`
@@ -38,6 +40,8 @@ Answer with source citations (or "I don't know" if not in the docs)
    ```
    foundry model list
    ```
+
+   If `foundry` isn't recognized on Windows right after installing, open a **new** terminal window — the installer updates your PATH, but already-open terminals won't see the change.
 
 ## Setup
 
@@ -54,9 +58,23 @@ python -m venv .venv
 # macOS / Linux:
 source .venv/bin/activate
 
-# Install dependencies
+# Install dependencies (just the `openai` package — see note above)
 pip install -r requirements.txt
 ```
+
+### Download and load the models
+
+This project's scripts expect both models to already be downloaded and loaded into the running Foundry Local daemon — they don't do this automatically. Run once per machine (and again any time you restart and want them ready):
+
+```bash
+foundry model download phi-3.5-mini
+foundry model download qwen3-embedding-0.6b
+
+foundry model load phi-3.5-mini
+foundry model load qwen3-embedding-0.6b
+```
+
+`foundry model load` starts the local daemon automatically if it isn't already running. The exact downloaded variant name depends on your hardware (e.g. `phi-3.5-mini-instruct-trtrtx-gpu` on an NVIDIA GPU) — the scripts look models up by alias, so this doesn't matter.
 
 ## Running the Project
 
@@ -68,7 +86,7 @@ Place your text or markdown files in the `documents/` folder (sample docs are in
 python ingest.py
 ```
 
-This chunks each document, embeds the chunks using a local embedding model, and stores everything in `rag_data.db`. Safe to re-run — it rebuilds the database from scratch each time.
+This chunks each document, embeds the chunks using the local embedding model, and stores everything in `rag_data.db`. Safe to re-run — it rebuilds the database from scratch each time.
 
 ### 2. Start the chatbot
 
@@ -90,15 +108,17 @@ Runs a set of predefined questions (some answerable, some not) and checks whethe
 
 ```
 foundrylocal/
-├── documents/       Sample documents the chatbot answers from
-├── requirements.txt Python dependencies
-├── smoke_test.py    Verify Foundry Local is working
-├── ingest.py        Chunk + embed documents → SQLite
-├── retrieval.py     Query embedding + cosine similarity search
-├── chat.py          Prompt assembly + LLM answer generation
-├── main.py          CLI entry point
-├── test_rag.py      Automated test harness
-└── rag_data.db      Generated database (not checked in)
+├── documents/         Sample documents the chatbot answers from
+├── requirements.txt   Python dependencies (just `openai`)
+├── config.py          Shared model names (CHAT_MODEL, EMBEDDING_MODEL)
+├── foundry_client.py  Shared helper: finds the local daemon and builds an OpenAI client
+├── smoke_test.py      Verify Foundry Local is working
+├── ingest.py          Chunk + embed documents → SQLite
+├── retrieval.py       Query embedding + cosine similarity search
+├── chat.py            Prompt assembly + LLM answer generation
+├── main.py            CLI entry point
+├── test_rag.py        Automated test harness
+└── rag_data.db        Generated database (not checked in)
 ```
 
 ## Adding Your Own Documents
@@ -112,16 +132,27 @@ The chatbot will only answer based on what's in the documents. If you ask about 
 ## Models Used
 
 | Purpose    | Model                  | Notes                          |
-|------------|------------------------|--------------------------------|
+|------------|------------------------|---------------------------------|
 | Chat       | `phi-3.5-mini`         | Small, fast, good for teaching |
 | Embeddings | `qwen3-embedding-0.6b` | Converts text to vectors       |
 
-Models are downloaded automatically on first use. The first run will be slower while models are pulled.
+Both are set in `config.py`. **They must both be loaded at the same time** — retrieval needs the embedding model, generation needs the chat model, and a typical question uses both. If your machine is memory-constrained, see Troubleshooting below.
+
+## Why no `foundry-local-sdk`?
+
+The original plan for this project assumed the `foundry-local-sdk` pip package (specifically its `manager.endpoint` / `FoundryLocalManager(...)` pattern for auto-downloading and loading models). While building this, that package's management API (the HTTP routes it uses internally to download, load, and list models) turned out to no longer exist on current Foundry Local daemon versions — only version `0.5.1` and earlier of the pip package matches the currently-installable CLI/daemon, and even then only after also working around a CLI command rename (`service` → `server`) between versions.
+
+Rather than pin to an old, unmaintained pip package, this project instead:
+- Uses the `foundry` **CLI** directly for model management (`foundry model download`, `foundry model load`) — see `foundry_client.py` for how scripts discover the daemon's URL via `foundry server status`.
+- Uses the plain `openai` package for inference, pointed at Foundry Local's `/v1` OpenAI-compatible endpoint — the same pattern the plan always intended, just without the extra SDK layer in between.
+
+This is arguably simpler for students anyway: one well-known package (`openai`) instead of a Microsoft-specific one, and the CLI commands are visible and debuggable on their own (`foundry model list`, `foundry server status`).
 
 ## Troubleshooting
 
-- **"Model not found"** — Run `foundry model list` to see available models. The exact model names may vary by platform.
-- **Import errors** — Make sure you installed the pip package (`pip install foundry-local-sdk`), not just the CLI. They are separate.
-- **Slow first run** — Normal. The model binary is being downloaded. Subsequent runs are fast.
-- **Out of memory** — Try a smaller chat model like `qwen2.5-0.5b`.
+- **"Model not found" / `RuntimeError: Model '...' is not loaded`** — Run `foundry model load <alias>` (see [Download and load the models](#download-and-load-the-models)). Run `foundry model list` to see what's available and what's already cached.
+- **`foundry` not recognized in the terminal** — Open a new terminal window after installing (PATH changes don't apply to already-open ones). On Windows, this project's CLI lives under `%LOCALAPPDATA%\Microsoft\WindowsApps`; if a shell still can't find it after reopening, confirm that folder is on your `PATH`.
+- **Slow first run** — Normal. The model files are being downloaded (2.1 GB for phi-3.5-mini, ~500 MB for the embedding model). Subsequent runs are fast.
+- **Out of memory** — Try a smaller chat model, e.g. `qwen2.5-0.5b` — update `CHAT_MODEL` in `config.py` and re-download/load it.
 - **Wrong or irrelevant answers** — Re-run `python ingest.py` to make sure the database matches your current documents.
+- **`[WinError 2] The system cannot find the file specified`** when testing `main.py` by piping input through Bash (e.g. `printf "..." | python main.py`) — this is a Git-Bash/MSYS pipe quirk, not a bug in the code. Use input redirection from a real file instead (`python main.py < input.txt`), or just run it interactively.
