@@ -156,8 +156,6 @@ Runs a set of predefined questions — some answerable, some deliberately not �
 ```
 foundrylocal/
 ├── documents/          Sample documents the chatbot answers from
-├── plans/              Step-by-step build plans used for the course
-├── prep/               Presentation materials (plan, script, technical doc)
 ├── config.py           Shared model names (CHAT_MODEL, EMBEDDING_MODEL)
 ├── foundry_client.py   Discovers the local daemon and builds an OpenAI client
 ├── smoke_test.py       Verifies Foundry Local is working
