@@ -2,3 +2,4 @@ plans/
 .venv/
 rag_data.db
 __pycache__/
+prep/
